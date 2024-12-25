@@ -3,6 +3,8 @@ package database
 import (
 	"database/sql"
 	"errors"
+	"io"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -133,12 +135,16 @@ func (c Client) UpdateVideo(video Video) error {
 	WHERE id = ?
 	`
 
+	if video.ThumbnailURL == nil {
+		return errors.New("thumbnail URL is required")
+	}
+
 	_, err := c.db.Exec(
 		query,
 		video.Title,
 		video.Description,
-		&video.ThumbnailURL,
-		&video.VideoURL,
+		*video.ThumbnailURL,
+		video.VideoURL,
 		video.UserID,
 		video.ID,
 	)
@@ -152,4 +158,32 @@ func (c Client) DeleteVideo(id uuid.UUID) error {
 	`
 	_, err := c.db.Exec(query, id)
 	return err
+}
+
+func readImageFile(filePath string) ([]byte, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
+}
+
+func getFileExtension(contentType string) string {
+	switch contentType {
+	case "image/jpeg", "image/jpg":
+		return "jpg"
+	case "image/png":
+		return "png"
+	case "image/gif":
+		return "gif"
+	default:
+		return "bin"
+	}
 }

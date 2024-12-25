@@ -2,7 +2,12 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -28,10 +33,63 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
-	// TODO: implement the upload here
+	const maxMemory = 10 << 20
+	err = r.ParseMultipartForm(maxMemory)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Couldn't parse request body", err)
+		return
+	}
 
-	respondWithJSON(w, http.StatusOK, struct{}{})
+	mpFile, header, err := r.FormFile("thumbnail")
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Couldn't read FormFile", err)
+		return
+	}
+	defer mpFile.Close()
+
+	mediaType, _, err := mime.ParseMediaType(header.Header.Get("Content-Type"))
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid Content-Type", err)
+		return
+	}
+	if mediaType != "image/jpeg" && mediaType != "image/png" {
+		respondWithError(w, http.StatusBadRequest, "Invalid file type", nil)
+		return
+	}
+
+	dbVideo, err := cfg.db.GetVideo(videoID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not find video", err)
+		return
+	}
+
+	parts := strings.Split(mediaType, "/")
+	fileExtension := parts[1]
+	fileName := fmt.Sprintf("%s.%s", videoID, fileExtension)
+	pathURL := filepath.Join(cfg.assetsRoot, fileName)
+
+	file, err := os.Create(pathURL)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error creating thumbnail on server", err)
+		return
+	}
+	defer file.Close()
+
+	_, err = io.Copy(file, mpFile)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error copying thumbnail to server", err)
+		return
+	}
+
+	newThumbnailURL := fmt.Sprintf("/assets/%s.%s", videoID, fileExtension)
+	dbVideo.ThumbnailURL = &newThumbnailURL
+	err = cfg.db.UpdateVideo(dbVideo)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not update video", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, dbVideo)
 }

@@ -8,15 +8,19 @@ import (
 )
 
 type Client struct {
-	db *sql.DB
+	db   *sql.DB
+	port int
 }
 
-func NewClient(pathToDB string) (Client, error) {
+func NewClient(pathToDB string, port int) (Client, error) {
 	db, err := sql.Open("sqlite3", pathToDB)
 	if err != nil {
 		return Client{}, err
 	}
-	c := Client{db}
+	c := Client{
+		db:   db,
+		port: port,
+	}
 	err = c.autoMigrate()
 	if err != nil {
 		return Client{}, err
